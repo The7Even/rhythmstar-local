@@ -1,0 +1,87 @@
+{
+  "ByeFriend": {
+    "file": "ByeFriend.ogg",
+    "durationMs": 81996.0090702948,
+    "peak": 0.5375390648841858
+  },
+  "EffectGameOver": {
+    "file": "EffectGameOver.wav",
+    "durationMs": 2216.0090702947846,
+    "peak": 0.460968017578125
+  },
+  "EffectGetItem": {
+    "file": "EffectGetItem.wav",
+    "durationMs": 1604.7619047619048,
+    "peak": 0.30908203125
+  },
+  "EffectKeyChange": {
+    "file": "EffectKeyChange.wav",
+    "durationMs": 208.0045351473923,
+    "peak": 0.32781982421875
+  },
+  "EffectMenuChange": {
+    "file": "EffectMenuChange.wav",
+    "durationMs": 460,
+    "peak": 0.6009521484375
+  },
+  "EffectMusicChange": {
+    "file": "EffectMusicChange.wav",
+    "durationMs": 540,
+    "peak": 0.16900634765625
+  },
+  "EffectResult": {
+    "file": "EffectResult.wav",
+    "durationMs": 4540,
+    "peak": 0.277435302734375
+  },
+  "EffectStarChange": {
+    "file": "EffectStarChange.wav",
+    "durationMs": 460,
+    "peak": 0.522552490234375
+  },
+  "EffectWindowOpen": {
+    "file": "EffectWindowOpen.wav",
+    "durationMs": 600,
+    "peak": 0.6383056640625
+  },
+  "FallinLove": {
+    "file": "FallinLove.ogg",
+    "durationMs": 76460,
+    "peak": 0.692834734916687
+  },
+  "ILikeIt": {
+    "file": "ILikeIt.ogg",
+    "durationMs": 63156.009070294785,
+    "peak": 0.5703235864639282
+  },
+  "LetsDance": {
+    "file": "LetsDance.ogg",
+    "durationMs": 66088.0045351474,
+    "peak": 0.4412686228752136
+  },
+  "MarchChop": {
+    "file": "MarchChop.ogg",
+    "durationMs": 76024.01360544217,
+    "peak": 0.34144943952560425
+  },
+  "MoonLight": {
+    "file": "MoonLight.ogg",
+    "durationMs": 67500,
+    "peak": 0.5397229194641113
+  },
+  "MoonSorrow": {
+    "file": "MoonSorrow.ogg",
+    "durationMs": 81800,
+    "peak": 0.6233771443367004
+  },
+  "NiceDay": {
+    "file": "NiceDay.ogg",
+    "durationMs": 69168.0045351474,
+    "peak": 0.6258396506309509
+  },
+  "SpyOut": {
+    "file": "SpyOut.ogg",
+    "durationMs": 73816.00907029478,
+    "peak": 0.4344414174556732
+  }
+}
