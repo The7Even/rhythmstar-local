@@ -10,6 +10,11 @@ export class BrowserMusic implements MusicPort {
   #synth: WorkletSynthesizer | undefined;
   #sequencer: Sequencer | undefined;
   #current: { midi: Uint8Array<ArrayBuffer>; repeat: boolean } | undefined;
+  #pcmSource: AudioBufferSourceNode | undefined;
+  #pcmActive = false;
+  #generation = 0;
+  readonly #pcmBuffers = new WeakMap<Uint8Array, AudioBuffer>();
+  readonly #pcmPending = new WeakMap<Uint8Array, Promise<void>>();
   readonly #effectSources = new Set<AudioBufferSourceNode>();
   readonly #effectBuffers = new WeakMap<Uint8Array, { time: number; buffer: AudioBuffer }[]>();
   readonly #musicGain = this.#context.createGain();
@@ -52,11 +57,64 @@ export class BrowserMusic implements MusicPort {
   }
 
   play(data: Uint8Array, repeat: boolean): void {
+    if (this.#isOgg(data)) {
+      this.stop();
+      this.#pcmActive = true;
+      this.#musicGain.gain.value = 1;
+      const generation = this.#generation;
+      const requestedAt = this.#context.currentTime;
+      const start = () => {
+        if (generation !== this.#generation) return;
+        const buffer = this.#pcmBuffers.get(data)!;
+        const elapsed = Math.max(0, this.#context.currentTime - requestedAt);
+        if (!repeat && elapsed >= buffer.duration) return;
+        const source = this.#context.createBufferSource();
+        source.buffer = buffer;
+        source.loop = repeat;
+        source.connect(this.#musicGain);
+        source.onended = () => {
+          source.disconnect();
+          if (this.#pcmSource === source) this.#pcmSource = undefined;
+        };
+        this.#pcmSource = source;
+        source.start(0, repeat ? elapsed % buffer.duration : elapsed);
+      };
+      if (this.#pcmBuffers.has(data)) start();
+      else void this.prepare(data).then(start).catch(this.onError);
+      return;
+    }
+    this.#stopPcm();
     this.#current = { midi: smafToMidi(parseSmaf(data)), repeat };
     this.#apply();
   }
 
+  #isOgg(data: Uint8Array): boolean {
+    return data[0] === 0x4f && data[1] === 0x67 && data[2] === 0x67 && data[3] === 0x53;
+  }
+
+  /** Decode before gameplay so starting music does not wait for the decoder. */
+  async prepare(data: Uint8Array): Promise<void> {
+    if (!this.#isOgg(data) || this.#pcmBuffers.has(data)) return;
+    let pending = this.#pcmPending.get(data);
+    if (!pending) {
+      pending = this.#context.decodeAudioData(new Uint8Array(data).buffer).then(buffer => {
+        this.#pcmBuffers.set(data, buffer);
+      }).finally(() => this.#pcmPending.delete(data));
+      this.#pcmPending.set(data, pending);
+    }
+    await pending;
+  }
+
+  #stopPcm(): void {
+    this.#generation++;
+    this.#pcmActive = false;
+    this.#pcmSource?.stop();
+    this.#pcmSource?.disconnect();
+    this.#pcmSource = undefined;
+  }
+
   stop(): void {
+    this.#stopPcm();
     this.#stopEffect();
     this.#current = undefined;
     this.#apply();
@@ -101,7 +159,7 @@ export class BrowserMusic implements MusicPort {
 
   #apply(): void {
     // Gate BGM independently, including while worklet messages are in flight.
-    this.#musicGain.gain.value = this.#current ? 1 : 0;
+    this.#musicGain.gain.value = this.#current || this.#pcmActive ? 1 : 0;
     const sequencer = this.#sequencer;
     if (!sequencer) return;
     if (!this.#current) {

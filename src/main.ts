@@ -74,7 +74,8 @@ const load = async (): Promise<void> => {
     const music = new BrowserMusic(error => {
       console.error("Background music failed:", error);
     });
-    const game = new RhythmStarGame({
+    await music.prepare(resources.read("res/Mmf/fd.ogg"));
+    const io = {
       resources,
       storage: new BrowserStorage(),
       clock: browserClock,
@@ -82,8 +83,10 @@ const load = async (): Promise<void> => {
       backlight,
       trace,
       music,
-      vibration: { pulse: milliseconds => { navigator.vibrate?.(milliseconds); } },
-    });
+      vibration: { pulse: (milliseconds: number) => { navigator.vibrate?.(milliseconds); } },
+    };
+    const autoplay = new URLSearchParams(location.search).get("autoplay");
+    const game = new RhythmStarGame(io, autoplay != null);
     const input = new KeyboardInput(game);
     mountVirtualKeyboard(requireElement<HTMLElement>("#virtual-keyboard"), input);
     game.start();

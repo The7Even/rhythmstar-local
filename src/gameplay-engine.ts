@@ -21,10 +21,11 @@ export class GameplayEngine {
   startedAt: number | undefined;
   cursor = 0;
   heldMask = 0;
+  autoPressedMask = 0;
   holdStartedMask = 0;
   #poolCursor = 0;
   #prepared = false;
-  constructor(readonly sequence: ChartSequence, readonly mode: number, readonly random: () => number, planetMultiplier = 65536, readonly sync = 0, readonly delay = 0, readonly mirror = false, readonly randomLanes = false) {
+  constructor(readonly sequence: ChartSequence, readonly mode: number, readonly random: () => number, planetMultiplier = 65536, readonly sync = 0, readonly delay = 0, readonly mirror = false, readonly randomLanes = false, readonly autoplay = false) {
     this.scoring = new GameScoring(mode, planetMultiplier);
   }
   #request(note: PlayingNote, state: number): void { note.nextState = state; note.counter = 0; }
@@ -81,6 +82,7 @@ export class GameplayEngine {
   }
   update(now: number, delta: number, pressedMask: number, heldMask: number, beforeSpawn: () => void = () => { }): void {
     this.feedback.length = 0;
+    this.autoPressedMask = 0;
     if (!this.#prepared) { this.#prepared = true; return; }
     if (this.phase === "ready") { this.phase = "playing"; this.startedAt = now; }
     const playingAtStart = this.phase === "playing";
@@ -94,7 +96,7 @@ export class GameplayEngine {
       }
       this.holdStartedMask &= heldMask;
       this.heldMask = heldMask;
-      this.#judge(pressedMask);
+      if (!this.autoplay) this.#judge(pressedMask);
     }
     for (const note of this.notes) {
       note.counter++;
@@ -115,6 +117,9 @@ export class GameplayEngine {
             this.#request(note, 2);
             if (event.channel === 20) { this.phase = "complete"; this.scoring.multiplier = 65536; }
           }
+        } else if (this.autoplay && note.elapsed >= due) {
+          this.autoPressedMask |= 1 << (event.channel % 10);
+          this.#hit(note, 4);
         } else if (note.elapsed > due + 200) {
           const hold = event.channel >= 10;
           // The native miss path offers pending held keys one final judgement pass.

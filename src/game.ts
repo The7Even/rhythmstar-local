@@ -21,6 +21,7 @@ import { MenuScreens, MENU_STATE_IDS, MenuPhase } from "./menu-screens";
 import { SelectionScreens, SELECTION_STATE_IDS, SelectionPhase } from "./selection-screens";
 import { SaveData, SOUND_LEVELS } from "./save-data";
 import { GameSession } from "./game-session";
+import { MusicRecords } from "./music-records";
 import { DownloadScreen } from "./download-screen";
 import { PlanetScreen } from "./planet-screen";
 import { HelpScreen } from "./help-screen";
@@ -118,7 +119,7 @@ export class RhythmStarGame {
   readonly #keys = new Set<GameKey>();
   readonly #heldKeys = new Set<GameKey>();
 
-  constructor(readonly io: RhythmStarIo) { }
+  constructor(readonly io: RhythmStarIo, readonly autoplay = false) { }
 
   get state(): RhythmStarState {
     return this.#state;
@@ -240,7 +241,13 @@ export class RhythmStarGame {
       this.io.trace.record("state.enter", { state: 21, phase: "planet" });
     } else if (this.#pendingPhase === "gameplay") {
       const selection = this.#selection!;
-      this.#session = new GameSession(selection.selected!, selection.mode, this.#save!, selection.records, this.io, this.#readResource, () => this.#nextRandom());
+      // Autoplay uses the normal session and result screens with private copies
+      // of records/settings, so its scores and rewards cannot enter real saves.
+      const chart = selection.selected!;
+      const save = this.autoplay ? new SaveData(this.#save!.bytes, this.#state.deviceProfile) : this.#save!;
+      const records = this.autoplay ? new MusicRecords([chart], this.#readResource, selection.records.bytes) : selection.records;
+      const sessionIo = this.autoplay ? { ...this.io, storage: { read: (name: string) => this.io.storage.read(name), write: () => {} } } : this.io;
+      this.#session = new GameSession(chart, selection.mode, save, records, sessionIo, this.#readResource, () => this.#nextRandom(), this.autoplay);
       this.#state = { ...this.#state, phase: "gameplay", phaseStartedAt: now };
     } else if (this.#pendingPhase === "help" || this.#pendingPhase === "credits") {
       this.#help ??= new HelpScreen(this.#readResource);
@@ -358,6 +365,7 @@ export class RhythmStarGame {
       this.#selectedPlayer?.draw(this.#offscreen);
       this.io.trace.record("vrp.draw", { resource: "res/Vrp/MusicSelect1.vrp", phase: "mainMenu", elapsed });
     }
+    if (this.autoplay) this.#englishFont?.draw(this.#offscreen, "AUTO PLAY", 2, 2, 0xffff, 0x0000);
     this.#screen.copyFrom(this.#offscreen);
     this.io.trace.record("graphics.copy", { source: "offscreen", target: "screen", x: 0, y: 0, width: 240, height: 320 });
     this.io.screen.present(this.#screen.width, this.#screen.height, this.#screen.pixels);

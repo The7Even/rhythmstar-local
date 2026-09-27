@@ -26,14 +26,14 @@ export class GameSession {
   #audioStarted = false;
   #prepared = false;
   readonly #planet;
-  constructor(readonly chart: RhythmChart, readonly mode: number, readonly save: SaveData, readonly records: MusicRecords, readonly io: RhythmStarIo, readonly read: (path: string) => Uint8Array, readonly random: () => number) {
+  constructor(readonly chart: RhythmChart, readonly mode: number, readonly save: SaveData, readonly records: MusicRecords, readonly io: RhythmStarIo, readonly read: (path: string) => Uint8Array, readonly random: () => number, readonly autoplay = false) {
     this.#planet = PLANETS[save.view.getInt32(0x224, true)];
     this.#start();
   }
   #start(): void {
     const planet = this.#planet;
     const chart = parseMus(this.chart.id, this.read(this.chart.id), planet?.speed);
-    this.engine = new GameplayEngine(chart.sequence, this.mode, this.random, planet?.multiplier, this.save.sync, this.save.delay, planet?.mirror, planet?.random);
+    this.engine = new GameplayEngine(chart.sequence, this.mode, this.random, planet?.multiplier, this.save.sync, this.save.delay, planet?.mirror, planet?.random, this.autoplay);
     this.view = new GameplayView(this.engine, this.read, () => {
       if (!this.save.vibrationEnabled) return;
       const milliseconds = this.#vibrationTime > 0 ? 0 : 100;
@@ -104,9 +104,9 @@ export class GameSession {
     const wasPrepared = this.#prepared;
     this.#prepared = true;
     this.engine.update(now, delta, pressed, mask(held), () => this.view.beforeSpawn(delta));
-    this.view.afterUpdate(wasPrepared ? pressed : 0);
+    this.view.afterUpdate(wasPrepared ? pressed | this.engine.autoPressedMask : 0);
     this.#gameOver?.update(delta);
-    if (!this.#audioStarted && (Math.abs(this.save.delay) !== 600 || this.engine.startedAt !== undefined && now > this.engine.startedAt + this.engine.sequence.audioStartMs)) {
+    if (!this.#audioStarted && this.engine.startedAt !== undefined && (Math.abs(this.save.delay) !== 600 || now > this.engine.startedAt + this.engine.sequence.audioStartMs)) {
       this.#audioStarted = true;
       const resource = `res/Mmf/${this.chart.audioFilename}`;
       this.io.music.play(this.read(resource), false); this.io.trace.record('music.play', { resource, repeat: false });
@@ -123,7 +123,7 @@ export class GameSession {
       }
     }
     if (this.engine.phase === 'complete') {
-      this.#trophy = this.records.complete(this.chart.id, this.engine.scoring, this.save, this.#planet?.mirror, this.#planet?.random, this.#planet?.speed);
+      if (!this.autoplay) this.#trophy = this.records.complete(this.chart.id, this.engine.scoring, this.save, this.#planet?.mirror, this.#planet?.random, this.#planet?.speed);
       this.#pending = 'result';
     } else if (this.engine.phase === 'playing' && keys.has('back')) this.#pending = 'pause';
   }
