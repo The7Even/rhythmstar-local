@@ -50,7 +50,8 @@ export class SelectionScreens {
     if (phase === "keySelect") {
       this.mode = 0;
       this.hint = false;
-      this.#base = players([13, 12, 4]);
+      // The floating stars swap between three sparkle bitmaps.
+      this.#base = [...players([13, 12]), new VrpPlayer(this.#archive, 4, true, [[118, 126, 131]])];
       this.#dynamic = players([11, 5, 8]);
       this.io.music.stop();
       this.io.trace.record("music.stop");
@@ -110,9 +111,11 @@ export class SelectionScreens {
       }
     } else this.#dynamic[2].update(delta);
     this.#dynamic[6].update(delta); this.#dynamic[7]?.update(delta);
-    if (!this.#stable) return;
     if (has("left") || has("right")) this.#planet(has("left") ? -1 : 1);
     else if (has("up") || has("down")) {
+      // Interrupt the previous transition at its latest selection before
+      // starting another, so the outgoing titles do not lag behind input.
+      if (!this.#stable) this.#refreshTitles();
       const up = has("up");
       this.song += up ? -1 : 1;
       const count = this.#catalog[this.mode].length;
@@ -123,12 +126,25 @@ export class SelectionScreens {
       this.#dynamic[2].select(42, false);
       this.#dynamic[5].select(up ? 51 : 54, false);
       this.#effect("EffectMusicChange");
-    } else if (has("back")) return "keySelect";
+    } else if (!this.#stable) return;
+    else if (has("back")) return "keySelect";
     else if (has("ok")) {
       if (this.selected) return "gameplay";
       return "download";
     }
     else if (has("hash")) return "planet";
+  }
+  advanceRendering(): void {
+    if (this.phase !== "songSelect") return;
+    const list = this.#dynamic[5];
+    const animation = this.#archive.animations[list.animation];
+    const marker = animation?.frames[list.frame - animation.firstFrame]?.markers.find(m => m.id === 30);
+    const title = this.#titles[2];
+    if (!marker || !title) return;
+    const width = [...title.replace(/\r./g, "")].reduce((sum, c) => sum + (c.charCodeAt(0) < 128 ? 6 : 12), 0);
+    if (width <= 100) return;
+    this.#scroll -= Math.floor(this.#delta * 15 * 65536 / 1000);
+    if (this.#scroll < -width * 65536) this.#scroll = (marker.x + 100) * 65536;
   }
   draw(target: Rgb565Framebuffer): void {
     drawVrpFrameBottomUp(target, this.#archive, 41, 0);
@@ -147,15 +163,14 @@ export class SelectionScreens {
     if (currency) for (let i = 0;i < 4;i++) drawVrpFrameBottomUp(target, this.#archive, 47, Math.trunc(this.save.view.getInt32(0x228, true) / 10 ** i) % 10, currency.x - i * 12, target.height - currency.y);
     const list = this.#dynamic[5];
     for (const [id, row] of [[30, 2], [31, 1], [32, 3], [33, 0], [34, 4]]) {
-      const m = marker(list.animation, list.frame, id);
+      const m = list.visualFrame(target.visualElapsed)?.markers.find(marker => marker.id === id);
       const title = this.#titles[row];
       if (!m || !title) continue;
       const width = [...title.replace(/\r./g, "")].reduce((sum, c) => sum + (c.charCodeAt(0) < 128 ? 6 : 12), 0);
       const y = Math.floor(target.height - m.y - 16), x = Math.floor(m.x);
       if (row === 2 && width > 100) {
-        this.#scroll -= Math.floor(this.#delta * 15 * 65536 / 1000);
-        if (this.#scroll < -width * 65536) this.#scroll = (m.x + 100) * 65536;
-        this.#font.draw(target, title, Math.floor(m.x + this.#scroll / 65536), y, width * 2, 16, 0, { x, y, width: 100, height: 16 });
+
+        this.#font.draw(target, title, Math.floor(m.x + this.#scroll / 65536 - target.visualElapsed * 15 / 1000), y, width * 2, 16, 0, { x, y, width: 100, height: 16 });
       } else this.#font.draw(target, title, x, y, 100, 16, 0);
     }
     if (this.hint) {

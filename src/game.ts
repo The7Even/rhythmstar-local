@@ -143,7 +143,7 @@ export class RhythmStarGame {
     trace.record("backlight.configure", { enabled: true, color: 0xffffffff, timeoutMilliseconds: 3_600_000 });
     trace.record("clock.read", { value: this.io.clock.now() });
 
-    this.#cancelTimer = this.io.clock.every(50, () => this.tick());
+    this.#cancelTimer = this.io.clock.every(50, () => this.tick(false), () => this.render());
     trace.record("timer.schedule", { intervalMilliseconds: 50 });
     trace.record("system.property", { name: "PHONEMODEL", value: "Emulator" });
     trace.record("system.property", { name: "PHONENUMBER", value: "" });
@@ -181,7 +181,7 @@ export class RhythmStarGame {
     trace.record("lifecycle.startApp.return");
   }
 
-  tick(): void {
+  tick(present = true): void {
     if (this.#state.lifecycle !== "running") return;
 
     if (this.#pendingPhase === "restart") {
@@ -324,6 +324,17 @@ export class RhythmStarGame {
       }
     }
     this.#keys.clear();
+    if (this.#state.phase === "gameplay") this.#session?.advanceRendering();
+    else if (this.#state.phase in SELECTION_STATE_IDS) this.#selection?.advanceRendering();
+    this.#state = { ...this.#state, frame: this.#state.frame + 1 };
+    if (present) this.render();
+  }
+
+  render(): void {
+    if (this.#state.lifecycle !== "running") return;
+    const now = this.io.clock.now();
+    // Project visuals only; cap the offset after a suspended tab.
+    this.#offscreen.visualElapsed = Math.min(50, Math.max(0, now - this.#lastTickAt));
     const elapsed = now - (this.#state.phaseStartedAt ?? now);
     // The state renderer clears the offscreen surface to RGB(0, 0, 0) on
     // every paint. The opaque white objects in anblogo.vrp establish the
@@ -359,7 +370,11 @@ export class RhythmStarGame {
       if (!this.#musicSelectVrp) throw new Error("music-select VRP was not loaded");
       drawVrpFrameBottomUp(this.#offscreen, this.#musicSelectVrp, MENU_BACKGROUND_ANIMATION, this.#state.menuSelection);
       for (const star of this.#menuStars) {
-        drawVrpFrameBottomUp(this.#offscreen, this.#musicSelectVrp, MENU_STAR_ANIMATION, 0, star.x / 65536, this.#offscreen.height - star.y / 65536);
+        const angle = Math.trunc(80 * 205887 / 180);
+        const extra = this.#offscreen.visualElapsed / 1000;
+        const x = star.x / 65536 + extra * nativeCosine(angle) * 50 / 65536;
+        const y = star.y / 65536 + extra * nativeSine(angle) * 50 / 65536;
+        drawVrpFrameBottomUp(this.#offscreen, this.#musicSelectVrp, MENU_STAR_ANIMATION, 0, x, this.#offscreen.height - y);
       }
       for (const player of this.#players) player.draw(this.#offscreen);
       this.#selectedPlayer?.draw(this.#offscreen);
@@ -368,9 +383,8 @@ export class RhythmStarGame {
     this.#screen.copyFrom(this.#offscreen);
     this.io.trace.record("graphics.copy", { source: "offscreen", target: "screen", x: 0, y: 0, width: 240, height: 320 });
     this.io.screen.present(this.#screen.width, this.#screen.height, this.#screen.pixels);
-    const frame = this.#state.frame + 1;
+    const frame = this.#state.frame;
     this.io.trace.record("screen.present", { frame, x: 0, y: 0, width: 240, height: 320 });
-    this.#state = { ...this.#state, frame };
   }
 
   keyDown(key: GameKey): void {
@@ -390,6 +404,7 @@ export class RhythmStarGame {
     const animation = key === "left" ? MENU_ITEMS[oldSelection].leftAnimation : MENU_ITEMS[selection].rightAnimation;
     const startedAt = now;
     this.#selectedPlayer?.select(animation, false);
+    this.#selectedPlayer?.update(0);
     this.#state = {
       ...this.#state,
       menuSelection: selection,

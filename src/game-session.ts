@@ -127,6 +127,7 @@ export class GameSession {
       this.#pending = 'result';
     } else if (this.engine.phase === 'playing' && keys.has('back')) this.#pending = 'pause';
   }
+  advanceRendering(): void { if (!this.#result) this.view.advanceRendering(); }
   draw(target: Rgb565Framebuffer): void {
     if (this.#result) this.#result.draw(target);
     else { this.view.draw(target); this.#gameOver?.draw(target); if (this.#help) this.#help.draw(target); else this.#pause?.draw(target); }

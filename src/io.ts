@@ -27,7 +27,7 @@ export interface StoragePort {
 
 export interface ClockPort {
   now(): number;
-  every(milliseconds: number, callback: () => void): () => void;
+  every(milliseconds: number, callback: () => void, render?: () => void): () => void;
 }
 
 export interface ScreenPort {

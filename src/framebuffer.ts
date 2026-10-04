@@ -2,6 +2,8 @@ import { nativeCosine, nativeSine } from "./original-math";
 
 export class Rgb565Framebuffer {
   readonly pixels: Uint16Array;
+  /** Presentation time after the latest logic tick, in milliseconds. */
+  visualElapsed = 0;
   constructor(
     readonly width: number,
     readonly height: number,
