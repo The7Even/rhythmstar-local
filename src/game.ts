@@ -341,7 +341,7 @@ export class RhythmStarGame {
       drawVrpFrameBottomUp(this.#offscreen, this.#titleVrp, COMMON_BACKGROUND_ANIMATION, 0);
       for (const player of this.#players) player.draw(this.#offscreen);
       // 0x115de8: font 0, x=2, y=28, text box 120×20.
-      if (this.#pendingPhase !== "mainMenu") this.#englishFont?.draw(this.#offscreen, "Ver 1.0.3", 2, 28, 0xffff, 0x0000);
+      if (this.#pendingPhase !== "mainMenu") this.#englishFont?.draw(this.#offscreen, "Ver Remastered", 2, 28, 0xffff, 0x0000);
       this.io.trace.record("vrp.draw", { resource: "res/Vrp/MusicSelect_Title.vrp", phase: "title", elapsed });
     } else if (this.#state.phase === "help" || this.#state.phase === "credits") {
       this.#help?.draw(this.#offscreen);
