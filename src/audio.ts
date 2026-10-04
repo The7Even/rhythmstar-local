@@ -1,6 +1,6 @@
 import { Sequencer, WorkletSynthesizer } from "spessasynth_lib";
 import processorUrl from "spessasynth_lib/dist/spessasynth_processor.min.js?url";
-import soundBankUrl from "../assets/1mgm.sf2?url";
+import soundBankUrl from "../assets/SHS-10.SF2?url";
 import type { MusicPort } from "./io";
 import { parseSmaf, smafToMidi } from "./smaf";
 
