@@ -58,26 +58,24 @@ export class GameplayEngine {
     this.feedback.push({ kind: "hit", channel: event.channel, grade, holdIndex: event.holdIndex, combo: this.scoring.combo, previousCombo });
     this.#request(note, hold ? 2 : 5);
   }
-  #judge(pressed: number): number {
-    if (!pressed && !this.heldMask) return 0;
+  #judge(pressed: number): void {
+    if (!pressed) return;
     let consumed = 0;
-    let lastGrade = 0;
     for (const note of this.notes) {
       const event = note.event;
       if (note.free || note.state === 2 || note.state === 5 || !event || event.channel > 19) continue;
       const hold = event.channel >= 10;
+      // Only a fresh key press can start a hold. Its continuation segments
+      // are handled separately once the head has actually been judged.
+      if (hold && event.holdIndex !== 0) continue;
       const bit = 1 << (event.channel - (hold ? 10 : 0));
-      if (consumed & bit || !((hold ? this.heldMask : pressed) & bit)) continue;
-      if (!hold || event.holdIndex === 0) {
-        lastGrade = judgeTiming(note.elapsed - (event.timeMs - event.spawnMs));
-        if (!lastGrade) continue;
-        if (hold) this.holdStartedMask |= bit;
-      }
-      if (!lastGrade) continue;
-      this.#hit(note, lastGrade as HitGrade);
+      if (consumed & bit || !(pressed & bit)) continue;
+      const grade = judgeTiming(note.elapsed - (event.timeMs - event.spawnMs));
+      if (!grade) continue;
+      if (hold) this.holdStartedMask |= bit;
+      this.#hit(note, grade);
       consumed |= bit;
     }
-    return lastGrade;
   }
   update(now: number, delta: number, pressedMask: number, heldMask: number, beforeSpawn: () => void = () => { }): void {
     this.feedback.length = 0;
@@ -117,12 +115,17 @@ export class GameplayEngine {
           }
         } else if (note.elapsed > due + 200) {
           const hold = event.channel >= 10;
-          // The native miss path offers pending held keys one final judgement pass.
-          const rescued = hold && this.#judge(pressedMask) !== 0;
-          if (!rescued) { this.scoring.miss(hold ? event.holdIndex : undefined); this.feedback.push({ kind: "miss" }); }
-          this.#request(note, 2);
+          // Rescue only this continuation of an already started hold. Running
+          // judgement again here would reuse the frame's press on another note.
+          const bit = hold ? 1 << (event.channel - 10) : 0;
+          const rescued = hold && event.holdIndex !== 0 && (this.heldMask & this.holdStartedMask & bit) !== 0;
+          if (rescued) this.#hit(note, 4);
+          else {
+            this.scoring.miss(hold ? event.holdIndex : undefined); this.feedback.push({ kind: "miss" });
+            this.#request(note, 2);
+          }
           if (this.scoring.gauge <= 0) this.phase = "failed";
-        } else if (event.channel >= 10 && note.elapsed > due) {
+        } else if (event.channel >= 10 && event.holdIndex !== 0 && note.elapsed > due) {
           const bit = 1 << (event.channel - 10);
           if (this.heldMask & this.holdStartedMask & bit) this.#hit(note, 4);
         }
