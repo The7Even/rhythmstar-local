@@ -23,7 +23,7 @@ export class UpscaledRenderer implements FramebufferPresentation {
 
   static async load(): Promise<UpscaledRenderer> {
     const entries = await Promise.all(manifest.unique.map(async sprite => {
-      const image = await loadRemasteredImage(`sprites/${sprite.key}.avif`);
+      const image = await loadRemasteredImage(`sprites/${sprite.key}.png`);
       return [sprite.key, image] as const;
     }));
     const byKey = new Map(entries);
@@ -32,7 +32,7 @@ export class UpscaledRenderer implements FramebufferPresentation {
       if (!ref.archive.toLowerCase().endsWith('.vrp') || ref.archive.toLowerCase().startsWith('mus/')) throw new Error('Only fixed VRP resources may be upscaled');
       images.set(`${ref.archive}:${ref.sprite}`, byKey.get(ref.key)!);
     }
-    const font = await loadRemasteredImage('fonts/glyphs-2x.avif');
+    const font = await loadRemasteredImage('fonts/glyphs-2x.png');
     return new UpscaledRenderer(images, font);
   }
 

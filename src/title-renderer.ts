@@ -8,7 +8,7 @@ export class TitleRenderer {
 
   static async load(): Promise<TitleRenderer> {
     const images = await Promise.all(Array.from({ length: 19 }, (_, id) =>
-      loadRemasteredImage(`title/sprite-${String(id).padStart(2, '0')}.avif`)));
+      loadRemasteredImage(`title/sprite-${String(id).padStart(2, '0')}.png`)));
     return new TitleRenderer(images);
   }
 

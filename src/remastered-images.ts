@@ -19,7 +19,7 @@ export function loadRemasteredImage(path: string): Promise<HTMLImageElement> {
   const pending = (async () => {
     const bytes = (await loadArchive())[path];
     if (!bytes) throw new Error(`Missing image in remastered archive: ${path}`);
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], {type:'image/avif'}));
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], {type:'image/png'}));
     try {
       const image = new Image();
       image.src = url;
