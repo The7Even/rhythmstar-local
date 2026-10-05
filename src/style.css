@@ -22,6 +22,10 @@ canvas {
   display: none;
 }
 
+canvas[data-presentation="title"], canvas[data-presentation="upscaled"] {
+  image-rendering: auto;
+}
+
 @media (max-width: 600px), (pointer: coarse) {
   body {
     box-sizing: border-box;

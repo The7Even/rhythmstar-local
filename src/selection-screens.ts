@@ -5,6 +5,7 @@ import { GameFont } from "./font";
 import { SaveData } from "./save-data";
 import { RhythmChart } from "./chart";
 import { musPicture } from "./mus-picture";
+import { registerMusPicture } from './mus-presentation';
 import { loadSongCatalog } from "./song-catalog";
 import { MusicRecords } from "./music-records";
 import { parseVrp, VrpArchive, VrpPlayer, drawVrpFrameBottomUp } from "./vrp";
@@ -14,6 +15,8 @@ export const SELECTION_STATE_IDS = { keySelect: 10, songSelect: 20 };
 // 0x137068: native planet table (mirror/random, speed indicator).
 const PLANET_OPTIONS = [[0, 1], [0, 2], [0, 3], [2, 0], [1, 0], [2, 1], [2, 2], [2, 3], [1, 1], [1, 2], [1, 3]];
 const DOWNLOAD = "\rB최신곡\rU 다운받기";
+const titleWidth = (title: string): number => [...title.replace(/\r./g, "")]
+  .reduce((sum, character) => sum + (character.charCodeAt(0) < 128 ? 8 : 12), 0);
 const HINT = "\rD[행성치유란?]\rU\n게임중에 얻은 \rY음표\rU로 \rD행성\rU을 치유하면, 그 \rD행성\rU을 골라 플레이할 수 있습니다.\n\rD행성\rU을 선택하면 \rE다양한 옵션\rU이 적용됩니다.\n";
 
 /** Native handlers 0x10c170 and 0x10e828. */
@@ -141,7 +144,7 @@ export class SelectionScreens {
     const marker = animation?.frames[list.frame - animation.firstFrame]?.markers.find(m => m.id === 30);
     const title = this.#titles[2];
     if (!marker || !title) return;
-    const width = [...title.replace(/\r./g, "")].reduce((sum, c) => sum + (c.charCodeAt(0) < 128 ? 6 : 12), 0);
+    const width = titleWidth(title);
     if (width <= 100) return;
     this.#scroll -= Math.floor(this.#delta * 15 * 65536 / 1000);
     if (this.#scroll < -width * 65536) this.#scroll = (marker.x + 100) * 65536;
@@ -166,12 +169,14 @@ export class SelectionScreens {
       const m = list.visualFrame(target.visualElapsed)?.markers.find(marker => marker.id === id);
       const title = this.#titles[row];
       if (!m || !title) continue;
-      const width = [...title.replace(/\r./g, "")].reduce((sum, c) => sum + (c.charCodeAt(0) < 128 ? 6 : 12), 0);
+      const width = titleWidth(title);
       const y = Math.floor(target.height - m.y - 16), x = Math.floor(m.x);
-      if (row === 2 && width > 100) {
-
-        this.#font.draw(target, title, Math.floor(m.x + this.#scroll / 65536 - target.visualElapsed * 15 / 1000), y, width * 2, 16, 0, { x, y, width: 100, height: 16 });
-      } else this.#font.draw(target, title, x, y, 100, 16, 0);
+      // Lay out the complete title on one line, then clip it to the row.
+      // A 100px text box would wrap the overflow onto a second baseline.
+      const textX = row === 2 && width > 100
+        ? Math.floor(m.x + this.#scroll / 65536 - target.visualElapsed * 15 / 1000) : x;
+      this.#font.draw(target, title, textX, y, Math.max(100, width), 12, 0,
+        { x, y, width: 100, height: 12 });
     }
     if (this.hint) {
       for (const p of this.#dialog) p.draw(target);
@@ -191,7 +196,7 @@ export class SelectionScreens {
     const chart = this.selected;
     if (!chart) { this.#picture = undefined; return; }
     let picture = this.#pictures.get(chart.id);
-    if (!picture) { picture = parseVrp(musPicture(this.read(chart.id))); this.#pictures.set(chart.id, picture); }
+    if (!picture) { picture = registerMusPicture(parseVrp(musPicture(this.read(chart.id)))); this.#pictures.set(chart.id, picture); }
     this.#picture = picture;
   }
   #preview(): void {

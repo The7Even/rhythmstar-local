@@ -1,6 +1,8 @@
 import { nativeCosine, nativeSine } from "./original-math";
+import type { FramebufferPresentation } from './presentation';
 
 export class Rgb565Framebuffer {
+  presentation?: FramebufferPresentation;
   readonly pixels: Uint16Array;
   /** Presentation time after the latest logic tick, in milliseconds. */
   visualElapsed = 0;
@@ -12,11 +14,13 @@ export class Rgb565Framebuffer {
   }
 
   clear(color: number): void {
+    this.presentation?.clear(color);
     this.pixels.fill(color & 0xffff);
   }
 
-  setPixel(x: number, y: number, color: number): void {
+  setPixel(x: number, y: number, color: number, present = true): void {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return;
+    if (present) this.presentation?.setPixel(x, y, color);
     this.pixels[y * this.width + x] = color & 0xffff;
   }
 
@@ -50,6 +54,7 @@ export class Rgb565Framebuffer {
   }
 
   blit(source: Readonly<{ width: number; height: number; pixels: Uint16Array; opaque: Uint8Array; runs?: readonly (readonly { skip: number; length: number }[])[] }>, x: number, y: number): void {
+    this.presentation?.blit(source, x, y);
     for (let sourceY = 0;sourceY < source.height;sourceY += 1) {
       const destinationY = y + sourceY;
       if (destinationY < 0 || destinationY >= this.height) continue;
@@ -72,6 +77,7 @@ export class Rgb565Framebuffer {
     drawMode = 0,
     effect = 16,
   ): void {
+    this.presentation?.blitScaled(source, left, top, right, bottom, drawMode, effect);
     const reverseX = right < left;
     const reverseY = bottom < top;
     const destinationLeft = Math.floor(Math.min(left, right));
@@ -105,7 +111,9 @@ export class Rgb565Framebuffer {
     rotationRadians: number,
     drawMode = 0,
     effect = 16,
+    present = true,
   ): void {
+    if (present) this.presentation?.blitTransformed(source, originX, originY, scaleX, scaleY, rotationRadians, drawMode, effect);
     if (rotationRadians !== 0) {
       this.#blitRotatedForward(source, originX, originY, scaleX, scaleY, rotationRadians, drawMode, effect);
       return;

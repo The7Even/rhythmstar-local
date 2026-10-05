@@ -5,6 +5,7 @@ import { GameKey } from "./game";
 import { RhythmStarIo } from "./io";
 import { Rgb565Framebuffer } from "./framebuffer";
 import { musPicture } from "./mus-picture";
+import { registerMusPicture } from './mus-presentation';
 import { parseVrp, VrpPlayer, drawVrpFrameBottomUp } from "./vrp";
 
 /** Native state 23, 0x10bd64; rows appear every five 50-ms updates. */
@@ -19,7 +20,7 @@ export class ResultScreen {
   #notice: NoticeScreen | undefined;
   constructor(readonly chart: RhythmChart, readonly scoring: GameScoring, readonly io: RhythmStarIo, readonly read: (path: string) => Uint8Array, readonly trophy = -1) {
     this.#archive = parseVrp(read("res/Vrp/MusicSelect1.vrp"));
-    this.#picture = parseVrp(musPicture(read(chart.id)));
+    this.#picture = registerMusPicture(parseVrp(musPicture(read(chart.id))));
     this.#base = [115, 116, 130].map(id => new VrpPlayer(this.#archive, id));
     this.#rank = new VrpPlayer(this.#archive, 118 + scoring.rank());
   }

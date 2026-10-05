@@ -5,6 +5,9 @@ import { loadResources } from "./resources";
 import { RhythmStarGame } from "./game";
 import { BacklightPort, EffectTrace, ScreenPort, StoragePort } from "./io";
 import { browserClock } from "./browser-clock";
+import { TitleRenderer } from './title-renderer';
+import { UpscaledRenderer } from './upscaled-renderer';
+import type { VrpArchive, VrpFrame } from './vrp';
 const resourceUrls = import.meta.glob<string>("../assets/res/**/*", { query: "?url", import: "default", eager: true });
 
 const requireElement = <T extends Element>(selector: string): T => {
@@ -22,22 +25,41 @@ const getCanvasContext = (target: HTMLCanvasElement): CanvasRenderingContext2D =
 const context = getCanvasContext(canvas);
 
 class BrowserScreen implements ScreenPort {
-  present(width: number, height: number, rgb565: Uint16Array): void {
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-    const image = context.createImageData(width, height);
-    for (let index = 0;index < rgb565.length;index += 1) {
-      const pixel = rgb565[index];
-      const destination = index * 4;
-      image.data[destination] = ((pixel >>> 11) * 255) / 31;
-      image.data[destination + 1] = (((pixel >>> 5) & 0x3f) * 255) / 63;
-      image.data[destination + 2] = ((pixel & 0x1f) * 255) / 31;
-      image.data[destination + 3] = 255;
-    }
-    context.putImageData(image, 0, 0);
+  remastered = true;
+  #nativeImage: ImageData | undefined;
+  constructor(readonly title: TitleRenderer, readonly presentation: UpscaledRenderer) {}
+  presentTitle(archive: VrpArchive, frames: readonly (VrpFrame | undefined)[], elapsed: number, showVersion: boolean): void {
+    canvas.dataset.presentation = 'title';
+    this.title.draw(canvas, archive, frames, elapsed, showVersion);
   }
+  present(width: number, height: number, rgb565: Uint16Array): void {
+    if (!this.remastered) {
+      canvas.dataset.presentation = 'original';
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width; canvas.height = height;
+      }
+      if (!this.#nativeImage || this.#nativeImage.width !== width || this.#nativeImage.height !== height) {
+        this.#nativeImage = context.createImageData(width, height);
+      }
+      const pixels = this.#nativeImage.data;
+      for (let i = 0; i < rgb565.length; i++) {
+        const color = rgb565[i], offset = i * 4;
+        pixels[offset] = (color >>> 11) * 255 / 31;
+        pixels[offset + 1] = ((color >>> 5) & 63) * 255 / 63;
+        pixels[offset + 2] = (color & 31) * 255 / 31;
+        pixels[offset + 3] = 255;
+      }
+      context.putImageData(this.#nativeImage, 0, 0);
+      return;
+    }
+    canvas.dataset.presentation = 'upscaled';
+    if (canvas.width !== width * 2 || canvas.height !== height * 2) {
+      canvas.width = width * 2; canvas.height = height * 2;
+    }
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.drawImage(this.presentation.canvas, 0, 0);
+  }
+
 }
 
 class BrowserStorage implements StoragePort {
@@ -74,11 +96,13 @@ const load = async (): Promise<void> => {
     const music = new BrowserMusic(error => {
       console.error("Background music failed:", error);
     });
+    const [title, presentation] = await Promise.all([TitleRenderer.load(), UpscaledRenderer.load()]);
+    const screen = new BrowserScreen(title, presentation);
     const game = new RhythmStarGame({
       resources,
       storage: new BrowserStorage(),
       clock: browserClock,
-      screen: new BrowserScreen(),
+      screen,
       backlight,
       trace,
       music,
@@ -89,6 +113,14 @@ const load = async (): Promise<void> => {
     game.start();
     window.addEventListener("keydown", event => {
       music.unlock();
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        if (!event.repeat) {
+          screen.remastered = !game.remastered;
+          game.setRemastered(screen.remastered);
+        }
+        return;
+      }
       input.keyDown(event);
     });
     window.addEventListener("keyup", event => input.keyUp(event));

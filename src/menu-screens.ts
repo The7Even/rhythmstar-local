@@ -44,11 +44,15 @@ export class MenuScreens {
       this.#base = players([55]);
       this.#options ??= parseVrp(this.read("res/Vrp/MusicSelect2_Option.vrp"));
       this.#dynamic = [new VrpPlayer(this.#options, 0), ...players([44, 46, 54, 50, 51, 59, 56, 58, 35])];
+      // These two vibration strokes alternate artwork on each side. Match
+      // their nearest pose, so interpolation cannot send them across the phone.
+      this.#dynamic[7] = new VrpPlayer(this.#archive, 56, true, [[5, 18]]);
       this.#refreshOptions();
     } else if (phase === "scores") {
       this.#background = 87;
       this.scoreSelection = previous === "trophies" ? 0 : 1;
       this.#base = players([91, 88, 90]);
+      this.#base[1] = new VrpPlayer(this.#archive, 88, true, [], 65);
       this.#dynamic = players([89]);
       this.#dialog = [];
     } else if (phase === "trophies") {
@@ -185,7 +189,14 @@ export class MenuScreens {
 
   draw(target: Rgb565Framebuffer): void {
     drawVrpFrameBottomUp(target, this.#archive, this.#background, 0);
-    for (const player of [...this.#base, ...this.#dynamic]) player.draw(target);
+    for (const player of this.#base) player.draw(target);
+    for (const [index, player] of this.#dynamic.entries()) {
+      // Options only advance the selected row. Hold the other row's pose
+      // instead of repeatedly extrapolating it during each render interval.
+      const paused = this.phase === "options" &&
+        (this.row === 1 ? index === 5 || index === 6 : index === 7);
+      player.draw(target, 0, target.height, 1, paused ? 0 : target.visualElapsed);
+    }
     if (this.phase === "trophies") {
       // 0x10cd38: marker positions in animation 99; persistent counts +0x28c.
       for (let index = 0;index < 12;index++) {

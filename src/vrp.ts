@@ -1,6 +1,8 @@
 import { Rgb565Framebuffer } from "./framebuffer";
+import { fixedVrpName } from './resource-identity';
 
 export type VrpSprite = Readonly<{
+  resourceKey?: string;
   width: number;
   height: number;
   pixels: Uint16Array;
@@ -72,10 +74,12 @@ export const parseVrp = (bytes: Uint8Array): VrpArchive => {
   }
 
   const spriteCount = readU32(view, spriteTable);
+  const resourceName = fixedVrpName(bytes);
   const spriteOffsets = Array.from({ length: spriteCount }, (_, index) => readU32(view, spriteTable + 4 + index * 4));
   const sprites = spriteOffsets.map((offset, index) => {
     const end = spriteOffsets[index + 1] ?? spriteDataEnd;
-    return decodeSprite(view, offset, end, palettes, index);
+    const sprite = decodeSprite(view, offset, end, palettes, index);
+    return resourceName ? { ...sprite, resourceKey: `${resourceName}:${index}` } : sprite;
   });
 
   const animationTable = readU32(view, 16);
@@ -207,7 +211,9 @@ export class VrpPlayer {
   position = 0;
   #updatedFrame: number | undefined;
   #updatedAnimation: number | undefined;
-  constructor(readonly archive: VrpArchive, public animation: number, public looping = true, readonly visualSpriteGroups: readonly (readonly number[])[] = []) { }
+  constructor(readonly archive: VrpArchive, public animation: number, public looping = true,
+    readonly visualSpriteGroups: readonly (readonly number[])[] = [],
+    readonly visualHorizontalPeriod?: number) { }
 
   select(animation: number, looping = true): void {
     this.animation = animation;
@@ -238,9 +244,9 @@ export class VrpPlayer {
     }
     let position = this.position + Math.floor(milliseconds * 65536 / 1000);
     if (position >= animation.durationTicks) position = this.looping ? position % animation.durationTicks : animation.durationTicks;
-    const interpolateLoop = this.looping && this.visualSpriteGroups.length > 0;
+    const interpolateLoop = this.looping && (this.visualSpriteGroups.length > 0 || !!this.visualHorizontalPeriod);
     const index = Math.min(animation.frames.length - (interpolateLoop ? 0 : 1),
-      position * (animation.firstFrame + animation.frames.length - (this.looping && hasScrollingEndpoint(animation) ? 1 : 0)) / animation.durationTicks - animation.firstFrame);
+      position * (animation.firstFrame + animation.frames.length - (this.looping && !this.visualHorizontalPeriod && hasScrollingEndpoint(animation) ? 1 : 0)) / animation.durationTicks - animation.firstFrame);
     const current = distinctVariants(animation.frames[Math.floor(index)], this.visualSpriteGroups);
     const next = distinctVariants(animation.frames[Math.floor(index) + 1] ?? (interpolateLoop ? animation.frames[0] : undefined), this.visualSpriteGroups);
     if (!current || !next) return current;
@@ -262,9 +268,15 @@ export class VrpPlayer {
             top: object.top + dy, bottom: object.bottom + dy, effect: mix(object.effect, 0) };
         }
         used.add(match);
-        const following = next.objects[match];
+        let following = next.objects[match];
         // Only interpolate the same sprite and compositor; cuts stay discrete.
         if (!following || following.drawMode !== object.drawMode) return object;
+        if (this.visualHorizontalPeriod) {
+          // Tiled marquees reset their source coordinates once a tile leaves.
+          // Interpolate to the equivalent neighboring tile, including the loop.
+          const shift = Math.round((object.left - following.left) / this.visualHorizontalPeriod) * this.visualHorizontalPeriod;
+          following = { ...following, left: following.left + shift, right: following.right + shift };
+        }
         // A sprite can be reused for a new effect at another location. Do not
         // turn a relocated, restarting effect into motion (3330's dots).
         const separatedX = Math.max(Math.min(object.left, object.right), Math.min(following.left, following.right))
@@ -308,8 +320,9 @@ export class VrpPlayer {
     };
   }
 
-  draw(target: Rgb565Framebuffer, x = 0, originY = target.height, scaleY = 1): void {
-    const frame = this.visualFrame(target.visualElapsed);
+  draw(target: Rgb565Framebuffer, x = 0, originY = target.height, scaleY = 1,
+    visualElapsed = target.visualElapsed): void {
+    const frame = this.visualFrame(visualElapsed);
     if (frame) drawVrpObjects(target, this.archive, this.animation, frame, x, originY, scaleY);
   }
 }
@@ -384,6 +397,10 @@ const drawVrpObjects = (
     const bottom = originY - object.top * scaleY;
     const startX = Math.floor(object.scaleX >= 0 ? left : right);
     const startY = Math.floor(object.scaleY >= 0 ? top : bottom);
+    target.presentation?.blitTransformed(sprite,
+      object.scaleX >= 0 ? left : right, object.scaleY >= 0 ? top : bottom,
+      object.scaleX, object.scaleY * scaleY,
+      (object.rotation * Math.PI * 2) / OBJECT_ROTATION_TURN, blendMode(object), object.effect);
     target.blitTransformed(
       sprite,
       startX,
@@ -393,6 +410,7 @@ const drawVrpObjects = (
       (object.rotation * Math.PI * 2) / OBJECT_ROTATION_TURN,
       blendMode(object),
       object.effect,
+      false,
     );
   }
 };

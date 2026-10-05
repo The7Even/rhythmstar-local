@@ -119,7 +119,16 @@ export class RhythmStarGame {
   readonly #keys = new Set<GameKey>();
   readonly #heldKeys = new Set<GameKey>();
 
-  constructor(readonly io: RhythmStarIo) { }
+  constructor(readonly io: RhythmStarIo) { this.#offscreen.presentation = io.screen.presentation; }
+
+  #remastered = true;
+
+  get remastered(): boolean { return this.#remastered; }
+
+  setRemastered(enabled: boolean): void {
+    this.#remastered = enabled;
+    this.render();
+  }
 
   get state(): RhythmStarState {
     return this.#state;
@@ -143,7 +152,9 @@ export class RhythmStarGame {
     trace.record("backlight.configure", { enabled: true, color: 0xffffffff, timeoutMilliseconds: 3_600_000 });
     trace.record("clock.read", { value: this.io.clock.now() });
 
-    this.#cancelTimer = this.io.clock.every(50, () => this.tick(false), () => this.render());
+    this.#cancelTimer = this.io.clock.every(50, () => this.tick(!this.#remastered), () => {
+      if (this.#remastered) this.render();
+    });
     trace.record("timer.schedule", { intervalMilliseconds: 50 });
     trace.record("system.property", { name: "PHONEMODEL", value: "Emulator" });
     trace.record("system.property", { name: "PHONENUMBER", value: "" });
@@ -334,7 +345,8 @@ export class RhythmStarGame {
     if (this.#state.lifecycle !== "running") return;
     const now = this.io.clock.now();
     // Project visuals only; cap the offset after a suspended tab.
-    this.#offscreen.visualElapsed = Math.min(50, Math.max(0, now - this.#lastTickAt));
+    this.#offscreen.presentation = this.#remastered ? this.io.screen.presentation : undefined;
+    this.#offscreen.visualElapsed = this.#remastered ? Math.min(50, Math.max(0, now - this.#lastTickAt)) : 0;
     const elapsed = now - (this.#state.phaseStartedAt ?? now);
     // The state renderer clears the offscreen surface to RGB(0, 0, 0) on
     // every paint. The opaque white objects in anblogo.vrp establish the
@@ -382,7 +394,11 @@ export class RhythmStarGame {
     }
     this.#screen.copyFrom(this.#offscreen);
     this.io.trace.record("graphics.copy", { source: "offscreen", target: "screen", x: 0, y: 0, width: 240, height: 320 });
-    this.io.screen.present(this.#screen.width, this.#screen.height, this.#screen.pixels);
+    if (this.#remastered && this.#state.phase === 'title' && this.#titleVrp && this.io.screen.presentTitle) {
+      this.io.screen.presentTitle(this.#titleVrp,
+        [this.#titleVrp.animations[0]?.frames[0], ...this.#players.map(player => player.visualFrame(this.#offscreen.visualElapsed))],
+        elapsed, this.#pendingPhase !== 'mainMenu');
+    } else this.io.screen.present(this.#screen.width, this.#screen.height, this.#screen.pixels);
     const frame = this.#state.frame;
     this.io.trace.record("screen.present", { frame, x: 0, y: 0, width: 240, height: 320 });
   }
