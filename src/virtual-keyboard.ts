@@ -49,9 +49,11 @@ export function mountVirtualKeyboard(container: HTMLElement, input: KeyboardInpu
     button.type = "button";
     button.textContent = label;
     button.setAttribute("aria-label", accessibleLabel);
+    let pointerClickPending = false;
     button.addEventListener("pointerdown", event => {
       if (event.button !== 0) return;
       event.preventDefault();
+      pointerClickPending = true;
       button.setPointerCapture(event.pointerId);
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, key });
       press(`pointer:${event.pointerId}`, key);
@@ -64,10 +66,17 @@ export function mountVirtualKeyboard(container: HTMLElement, input: KeyboardInpu
       move(event);
     });
     for (const eventName of ["pointerup", "pointercancel", "lostpointercapture"] as const) {
-      button.addEventListener(eventName, event => release(event.pointerId));
+      button.addEventListener(eventName, event => {
+        if (eventName === 'pointercancel') pointerClickPending = false;
+        release(event.pointerId);
+      });
     }
+    button.addEventListener('keydown', () => { pointerClickPending = false; });
     // Keyboard and assistive-technology activation has no pointer sequence.
     button.addEventListener("click", event => {
+      // Some touch browsers emit detail=0 for their synthesized click, too.
+      // Consume that click even though pointerup has already released the key.
+      if (pointerClickPending) { pointerClickPending = false; return; }
       if (event.detail !== 0) return;
       const source = `virtual:${key}`;
       press(source, key);

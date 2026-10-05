@@ -1,5 +1,9 @@
 import { Rgb565Framebuffer } from "./framebuffer";
 
+/** MUS strings may spell formatting escapes literally; UI strings use controls. */
+export const normalizeGameText = (text: string): string => text
+  .replaceAll("\r\n", "\n").replaceAll("\\n", "\n").replaceAll("\\r", "\r");
+
 export class BitmapFont {
   readonly #bytes: Uint8Array;
   readonly #view: DataView;
@@ -63,7 +67,7 @@ export class GameFont {
     let cx = x;
     let cy = y;
     const initialColor = color;
-    const source = text.replaceAll("\r\n", "\n").replaceAll("\\n", "\n");
+    const source = normalizeGameText(text);
     for (let i = 0;i < source.length;i++) {
       const char = source[i];
       if (char === "\r") {

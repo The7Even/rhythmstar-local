@@ -1,7 +1,7 @@
 import type { GameKey } from "./game";
 import type { RhythmStarIo } from "./io";
 import type { Rgb565Framebuffer } from "./framebuffer";
-import { GameFont } from "./font";
+import { GameFont, normalizeGameText } from "./font";
 import { SaveData } from "./save-data";
 import { RhythmChart } from "./chart";
 import { musPicture } from "./mus-picture";
@@ -15,7 +15,8 @@ export const SELECTION_STATE_IDS = { keySelect: 10, songSelect: 20 };
 // 0x137068: native planet table (mirror/random, speed indicator).
 const PLANET_OPTIONS = [[0, 1], [0, 2], [0, 3], [2, 0], [1, 0], [2, 1], [2, 2], [2, 3], [1, 1], [1, 2], [1, 3]];
 const DOWNLOAD = "\rB최신곡\rU 다운받기";
-const titleWidth = (title: string): number => [...title.replace(/\r./g, "")]
+const TITLE_SCROLL_GAP = 24;
+const titleWidth = (title: string): number => [...normalizeGameText(title).replace(/\r./g, "")]
   .reduce((sum, character) => sum + (character.charCodeAt(0) < 128 ? 8 : 12), 0);
 const HINT = "\rD[행성치유란?]\rU\n게임중에 얻은 \rY음표\rU로 \rD행성\rU을 치유하면, 그 \rD행성\rU을 골라 플레이할 수 있습니다.\n\rD행성\rU을 선택하면 \rE다양한 옵션\rU이 적용됩니다.\n";
 
@@ -147,7 +148,7 @@ export class SelectionScreens {
     const width = titleWidth(title);
     if (width <= 100) return;
     this.#scroll -= Math.floor(this.#delta * 15 * 65536 / 1000);
-    if (this.#scroll < -width * 65536) this.#scroll = (marker.x + 100) * 65536;
+    this.#scroll %= (width + TITLE_SCROLL_GAP) * 65536;
   }
   draw(target: Rgb565Framebuffer): void {
     drawVrpFrameBottomUp(target, this.#archive, 41, 0);
@@ -173,10 +174,18 @@ export class SelectionScreens {
       const y = Math.floor(target.height - m.y - 16), x = Math.floor(m.x);
       // Lay out the complete title on one line, then clip it to the row.
       // A 100px text box would wrap the overflow onto a second baseline.
-      const textX = row === 2 && width > 100
-        ? Math.floor(m.x + this.#scroll / 65536 - target.visualElapsed * 15 / 1000) : x;
-      this.#font.draw(target, title, textX, y, Math.max(100, width), 12, 0,
-        { x, y, width: 100, height: 12 });
+      const clip = { x, y, width: 100, height: 12 };
+      if (row === 2 && width > 100) {
+        const period = width + TITLE_SCROLL_GAP;
+        const offset = (this.#scroll / 65536 - target.visualElapsed * 15 / 1000) % period;
+        // The next copy follows the tail by a short gap instead of waiting
+        // outside the entire row. Modulo retains motion across each wrap.
+        for (const copy of [offset, offset + period]) {
+          if (copy < 100 && copy + width > 0) {
+            this.#font.draw(target, title, Math.floor(m.x + copy), y, width, 12, 0, clip);
+          }
+        }
+      } else this.#font.draw(target, title, x, y, Math.max(100, width), 12, 0, clip);
     }
     if (this.hint) {
       for (const p of this.#dialog) p.draw(target);

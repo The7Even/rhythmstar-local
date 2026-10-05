@@ -17,8 +17,15 @@ export type RhythmChart = {
 const decoder = new TextDecoder("euc-kr");
 
 const directive = (text: string, name: string): string => {
-  const match = text.match(new RegExp(`^#${name}\\s+(.+?)\\s*$`, "im"));
-  return match?.[1].replace(/^"|"$/g, "") ?? "";
+  // Horizontal whitespace only: an empty directive must not consume the next
+  // header line. Quoted values end before any trailing // comment.
+  const match = text.match(new RegExp(`^#${name}(?:[ \\t]+([^\\r\\n]*))?[ \\t]*$`, "im"));
+  const value = match?.[1]?.trim() ?? "";
+  if (value.startsWith('"')) {
+    const closing = value.indexOf('"', 1);
+    return closing < 0 ? value.slice(1) : value.slice(1, closing);
+  }
+  return value.split('//', 1)[0].trim();
 };
 
 const chartText = (data: Uint8Array): string => {
@@ -38,7 +45,7 @@ export const parseMus = (id: string, data: Uint8Array, speedScale = 65536): Rhyt
   const end = sequence.events.find(event => event.channel === 20);
   return {
     id,
-    title: directive(text, "TITLE") || id,
+    title: directive(text, "TITLE").split(/\r\n|\n|\\n/, 1)[0] || id,
     subtitle: directive(text, "SUBTITLE"),
     artist: directive(text, "ARTIST"),
     bpm,
