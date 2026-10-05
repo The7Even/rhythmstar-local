@@ -2,7 +2,7 @@ import type { GameKey } from "./game";
 import { KEY_BINDINGS, type KeyBindings } from "./key-bindings";
 
 type KeyEvent = Pick<KeyboardEvent, "key" | "code" | "repeat" | "preventDefault">;
-type InputTarget = { keyDown(key: GameKey): void; keyUp(key: GameKey): void; releaseKeys(): void; readonly keypadFlipped: boolean };
+type InputTarget = { keyDown(key: GameKey): void; keyUp(key: GameKey): void; releaseKeys(): void; readonly keypadFlipped: boolean; readonly gameplayKeyCount?: number };
 
 const FLIPPED_ROWS: Partial<Record<GameKey, GameKey>> = { "1": "7", "2": "8", "3": "9", "7": "1", "8": "2", "9": "3" };
 
@@ -52,6 +52,12 @@ export class KeyboardInput {
 
   press(source: string, action: GameKey): void {
     if (this.#pressed.has(source)) return;
+    const keyCount = this.target.gameplayKeyCount;
+    const digit = Number(action);
+    if (digit >= 1 && digit <= 9) {
+      if (keyCount === 3) action = String((digit - 1) % 3 + 1) as GameKey;
+      else if (keyCount === 6 && digit >= 7) action = String(digit - 6) as GameKey;
+    }
     const alreadyHeld = [...this.#pressed.values()].includes(action);
     this.#pressed.set(source, action);
     if (!alreadyHeld) {

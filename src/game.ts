@@ -139,6 +139,12 @@ export class RhythmStarGame {
     return this.#keypad.flipped && (lanes === "ready" || lanes === "playing");
   }
 
+  get gameplayKeyCount(): number | undefined {
+    const session = this.#state.phase === 'gameplay' ? this.#session : undefined;
+    return session && (session.engine.phase === 'ready' || session.engine.phase === 'playing')
+      ? 3 + session.mode * 3 : undefined;
+  }
+
   start(): void {
     if (this.#state.lifecycle !== "created") return;
 
