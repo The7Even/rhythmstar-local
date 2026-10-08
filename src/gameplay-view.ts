@@ -16,7 +16,7 @@ export class GameplayView {
   readonly keys: VrpPlayer[];
   readonly background: VrpPlayer[];
   readonly notePlayers: { body: VrpPlayer; label: VrpPlayer }[];
-  readonly #cues: { player: VrpPlayer; active: boolean }[];
+  readonly #cues: { player: VrpPlayer; active: boolean; visible: boolean }[];
   readonly #effects: { player: VrpPlayer; active: boolean; ending: boolean; free: boolean; x: number; y: number; holdLane: number; settle: boolean; remaining: number | undefined }[];
   readonly #combo: VrpPlayer;
   readonly #tier: VrpPlayer;
@@ -41,7 +41,7 @@ export class GameplayView {
     for (const player of this.background) player.update(50);
     this.keys = Array.from({ length: 3 + engine.mode * 3 }, () => new VrpPlayer(this.archive, program.key));
     this.notePlayers = engine.notes.map(() => ({ body: new VrpPlayer(this.archive, 58), label: new VrpPlayer(this.archive, 75) }));
-    this.#cues = this.keys.map((_, lane) => ({ player: new VrpPlayer(this.archive, [66, 135, 219][engine.mode] + lane, false), active: false }));
+    this.#cues = this.keys.map((_, lane) => ({ player: new VrpPlayer(this.archive, [66, 135, 219][engine.mode] + lane, false), active: false, visible: false }));
     this.#effects = Array.from({ length: 128 }, () => ({ player: new VrpPlayer(this.archive, 90, false), active: false, ending: false, free: true, x: 0, y: 0, holdLane: -1, settle: false, remaining: undefined }));
     this.#combo = new VrpPlayer(this.archive, [46, 109, 187][engine.mode], false);
     this.#tier = new VrpPlayer(this.archive, [38, 101, 179][engine.mode]);
@@ -143,13 +143,16 @@ export class GameplayView {
     if (this.#comboVisible && this.#combo.update(this.#delta)) this.#comboEnding = true;
     if (this.#tierVisible && this.#tier.update(this.#delta) && this.#tierIntro) { this.#tier.select(this.#tier.animation - 1); this.#tierIntro = false; }
   }
+  advanceRendering(): void {
+    for (const cue of this.#cues) {
+      cue.visible = cue.active;
+      if (cue.active && cue.player.update(this.#delta)) cue.active = false;
+    }
+  }
   draw(target: Rgb565Framebuffer): void {
     const p = PROGRAMS[this.engine.mode];
     for (const cue of this.#cues) {
-      if (!cue.active) continue;
-      const complete = cue.player.update(this.#delta);
-      cue.player.draw(target);
-      if (complete) cue.active = false;
+      if (cue.visible) cue.player.draw(target);
     }
     for (const player of this.background) player.draw(target);
     // Native render queue 0x11fb60 prepends objects at equal depth.
@@ -158,7 +161,9 @@ export class GameplayView {
       if (note.free || !note.event || note.event.channel === 20) continue;
       const lane = note.event.channel >= 20 ? 0 : note.event.channel % 10;
       const x = p.x + lane * p.width;
-      const origin = target.height - note.y / 65536;
+      const extra = this.engine.phase === "playing" && note.state === 1 ? target.visualElapsed : 0;
+      const y = note.y - note.event.speed * extra / 1000;
+      const origin = target.height - y / 65536;
       this.notePlayers[i].label.draw(target, x, origin);
       const holdScale = note.event.holdSpeed / 65536;
       this.notePlayers[i].body.draw(target, x, origin + (holdScale > 0 ? 8 * holdScale - 8 / 65536 : 0), holdScale || 1);
@@ -167,8 +172,7 @@ export class GameplayView {
     for (const index of [1, 2, 3, 6, 7]) this.hud[index].draw(target);
     for (const player of this.keys) player.draw(target);
     const main = this.hud[1];
-    const animation = this.archive.animations[main.animation];
-    for (const marker of animation?.frames[main.frame - animation.firstFrame]?.markers ?? []) {
+    for (const marker of main.visualFrame(target.visualElapsed)?.markers ?? []) {
       if (marker.id === 20) {
         let score = this.engine.scoring.score;
         for (let i = 0;i < 7;i++) {

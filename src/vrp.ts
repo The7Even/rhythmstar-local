@@ -1,6 +1,8 @@
 import { Rgb565Framebuffer } from "./framebuffer";
+import { fixedVrpName } from './resource-identity';
 
 export type VrpSprite = Readonly<{
+  resourceKey?: string;
   width: number;
   height: number;
   pixels: Uint16Array;
@@ -72,10 +74,12 @@ export const parseVrp = (bytes: Uint8Array): VrpArchive => {
   }
 
   const spriteCount = readU32(view, spriteTable);
+  const resourceName = fixedVrpName(bytes);
   const spriteOffsets = Array.from({ length: spriteCount }, (_, index) => readU32(view, spriteTable + 4 + index * 4));
   const sprites = spriteOffsets.map((offset, index) => {
     const end = spriteOffsets[index + 1] ?? spriteDataEnd;
-    return decodeSprite(view, offset, end, palettes, index);
+    const sprite = decodeSprite(view, offset, end, palettes, index);
+    return resourceName ? { ...sprite, resourceKey: `${resourceName}:${index}` } : sprite;
   });
 
   const animationTable = readU32(view, 16);
@@ -136,17 +140,87 @@ const decodeAnimation = (view: DataView, offset: number, animationIndex: number)
   return { firstFrame, durationTicks, durationMilliseconds, frames };
 };
 
+// When repeated sprites keep the same count, their source order preserves
+// identity even if brightness changes. Otherwise use pose and effect together.
+const matchingObject = (
+  objects: readonly VrpObject[], object: VrpObject, used: ReadonlySet<number> = new Set(),
+  spriteGroups: readonly (readonly number[])[] = [], sourceObjects: readonly VrpObject[] = [],
+): number => {
+  const compatible = (candidate: VrpObject): boolean => {
+    const sameSprite = candidate.sprite === object.sprite || spriteGroups.some(group => group.includes(object.sprite) && group.includes(candidate.sprite));
+    return sameSprite && candidate.drawMode === object.drawMode
+      && object.scaleX * candidate.scaleX >= 0 && object.scaleY * candidate.scaleY >= 0;
+  };
+  const source = sourceObjects.filter(compatible);
+  const candidates = objects.map((candidate, i) => compatible(candidate) ? i : -1).filter(i => i >= 0);
+  if (!spriteGroups.some(group => group.includes(object.sprite)) && source.length > 1 && source.length === candidates.length) {
+    const index = candidates[source.indexOf(object)];
+    if (index !== undefined && !used.has(index)) return index;
+  }
+  let match = -1;
+  let distance = Infinity;
+  for (const i of candidates) {
+    if (used.has(i)) continue;
+    const candidate = objects[i];
+    const delta = (candidate.left - object.left) ** 2 + (candidate.top - object.top) ** 2
+      + (candidate.effect - object.effect) ** 2 * 16
+      + ((candidate.scaleX - object.scaleX) ** 2 + (candidate.scaleY - object.scaleY) ** 2) * 4096;
+    if (delta < distance) { match = i; distance = delta; }
+  }
+  return match;
+};
+
+// Star paths overlap at the turnaround frame. Keep one physical star there
+// rather than interpolating both source copies along different paths.
+const distinctVariants = (frame: VrpFrame | undefined, groups: readonly (readonly number[])[]): VrpFrame | undefined => {
+  if (!frame || !groups.length) return frame;
+  return { ...frame, objects: frame.objects.filter((object, i, objects) => {
+    const group = groups.find(group => group.includes(object.sprite));
+    if (!group) return true;
+    return !objects.slice(i + 1).some(other => group.includes(other.sprite)
+      && other.drawMode === object.drawMode && other.effect === object.effect
+      && other.scaleX === object.scaleX && other.scaleY === object.scaleY
+      && Math.abs((other.left + other.right - object.left - object.right) / 2) <= 1.5
+      && Math.abs((other.top + other.bottom - object.top - object.bottom) / 2) <= 1.5);
+  }) };
+};
+
+// Scrolling strips include their periodic endpoint as the last source frame.
+const scrollingEndpoints = new WeakMap<VrpAnimation, boolean>();
+const hasScrollingEndpoint = (animation: VrpAnimation): boolean => {
+  const cached = scrollingEndpoints.get(animation);
+  if (cached !== undefined) return cached;
+  const first = animation.frames[0]?.objects ?? [];
+  const last = animation.frames.at(-1)?.objects ?? [];
+  const displacement = last[0] && first[0] ? last[0].left - first[0].left : 0;
+  const scrolling = first.length > 2 && first.length === last.length && Math.abs(displacement) > 1
+    && first.every((object, i) => {
+      const end = last[i];
+      return object.sprite === first[0].sprite && end.sprite === object.sprite
+        && end.drawMode === object.drawMode && end.scaleX === object.scaleX && end.scaleY === object.scaleY
+        && end.top === object.top && end.bottom === object.bottom && end.rotation === object.rotation
+        && Math.abs(end.left - object.left - displacement) <= 1;
+    });
+  scrollingEndpoints.set(animation, scrolling);
+  return scrolling;
+};
+
 /** Semantic translation of the player at 0x125b9c / 0x125d6c. */
 export class VrpPlayer {
   frame = 0;
   position = 0;
-  constructor(readonly archive: VrpArchive, public animation: number, public looping = true) { }
+  #updatedFrame: number | undefined;
+  #updatedAnimation: number | undefined;
+  constructor(readonly archive: VrpArchive, public animation: number, public looping = true,
+    readonly visualSpriteGroups: readonly (readonly number[])[] = [],
+    readonly visualHorizontalPeriod?: number) { }
 
   select(animation: number, looping = true): void {
     this.animation = animation;
     this.looping = looping;
     this.position = 0;
     this.frame = 0;
+    this.#updatedFrame = undefined;
   }
 
   update(milliseconds: number): boolean {
@@ -157,12 +231,99 @@ export class VrpPlayer {
     if (complete) this.position = this.looping ? this.position - animation.durationTicks : animation.durationTicks;
     this.frame = Math.min(animation.firstFrame + animation.frames.length - 1,
       Math.floor(this.position * (animation.firstFrame + animation.frames.length) / animation.durationTicks));
+    this.#updatedFrame = this.frame;
+    this.#updatedAnimation = this.animation;
     return complete;
   }
 
-  draw(target: Rgb565Framebuffer, x = 0, originY = target.height, scaleY = 1): void {
+  visualFrame(milliseconds = 0): VrpFrame | undefined {
     const animation = this.archive.animations[this.animation];
-    if (animation) drawVrpFrameBottomUp(target, this.archive, this.animation, this.frame - animation.firstFrame, x, originY, scaleY);
+    if (!animation) return;
+    if (this.#updatedFrame !== this.frame || this.#updatedAnimation !== this.animation || !animation.durationTicks) {
+      return animation.frames[this.frame - animation.firstFrame];
+    }
+    let position = this.position + Math.floor(milliseconds * 65536 / 1000);
+    if (position >= animation.durationTicks) position = this.looping ? position % animation.durationTicks : animation.durationTicks;
+    const interpolateLoop = this.looping && (this.visualSpriteGroups.length > 0 || !!this.visualHorizontalPeriod);
+    const index = Math.min(animation.frames.length - (interpolateLoop ? 0 : 1),
+      position * (animation.firstFrame + animation.frames.length - (this.looping && !this.visualHorizontalPeriod && hasScrollingEndpoint(animation) ? 1 : 0)) / animation.durationTicks - animation.firstFrame);
+    const current = distinctVariants(animation.frames[Math.floor(index)], this.visualSpriteGroups);
+    const next = distinctVariants(animation.frames[Math.floor(index) + 1] ?? (interpolateLoop ? animation.frames[0] : undefined), this.visualSpriteGroups);
+    if (!current || !next) return current;
+    const fraction = index - Math.floor(index);
+    const mix = (from: number, to: number) => from + (to - from) * fraction;
+    const used = new Set<number>();
+    return {
+      objects: current.objects.map(object => {
+        // Object indices are draw order, not identity. Insertions/removals can
+        // shift labels and arrows to different slots in the next frame.
+        const match = matchingObject(next.objects, object, used, this.visualSpriteGroups, current.objects);
+        if (match < 0) {
+          const previousObjects = animation.frames[Math.floor(index) - 1]?.objects ?? [];
+          const previous = previousObjects[matchingObject(previousObjects, object)];
+          if (!previous || object.drawMode < 2 || object.effect >= previous.effect) return object;
+          const dx = (object.left - previous.left) * fraction;
+          const dy = (object.top - previous.top) * fraction;
+          return { ...object, left: object.left + dx, right: object.right + dx,
+            top: object.top + dy, bottom: object.bottom + dy, effect: mix(object.effect, 0) };
+        }
+        used.add(match);
+        let following = next.objects[match];
+        // Only interpolate the same sprite and compositor; cuts stay discrete.
+        if (!following || following.drawMode !== object.drawMode) return object;
+        if (this.visualHorizontalPeriod) {
+          // Tiled marquees reset their source coordinates once a tile leaves.
+          // Interpolate to the equivalent neighboring tile, including the loop.
+          const shift = Math.round((object.left - following.left) / this.visualHorizontalPeriod) * this.visualHorizontalPeriod;
+          following = { ...following, left: following.left + shift, right: following.right + shift };
+        }
+        // A sprite can be reused for a new effect at another location. Do not
+        // turn a relocated, restarting effect into motion (3330's dots).
+        const separatedX = Math.max(Math.min(object.left, object.right), Math.min(following.left, following.right))
+          > Math.min(Math.max(object.left, object.right), Math.max(following.left, following.right));
+        const separatedY = Math.max(Math.min(object.top, object.bottom), Math.min(following.top, following.bottom))
+          > Math.min(Math.max(object.top, object.bottom), Math.max(following.top, following.bottom));
+        const restarting = Math.abs(following.scaleX) > Math.abs(object.scaleX)
+          || Math.abs(following.scaleY) > Math.abs(object.scaleY)
+          || object.effect === 0 && following.effect > 0;
+        if ((separatedX || separatedY) && restarting) return object;
+        // Variant bitmaps have different sizes. Keep their centers aligned
+        // while interpolating the current bitmap toward the next pose.
+        const sprite = this.archive.sprites[object.sprite];
+        const variant = object.sprite !== following.sprite;
+        const halfWidth = variant ? sprite.width * following.scaleX / 2 : (following.right - following.left) / 2;
+        const halfHeight = variant ? sprite.height * following.scaleY / 2 : (following.bottom - following.top) / 2;
+        const centerX = (following.left + following.right) / 2;
+        const centerY = (following.top + following.bottom) / 2;
+        const turn = OBJECT_ROTATION_TURN;
+        const rotationDelta = ((following.rotation - object.rotation + turn / 2) % turn + turn) % turn - turn / 2;
+        return { ...object,
+          left: mix(object.left, centerX - halfWidth), right: mix(object.right, centerX + halfWidth),
+          top: mix(object.top, centerY - halfHeight), bottom: mix(object.bottom, centerY + halfHeight),
+          scaleX: mix(object.scaleX, following.scaleX), scaleY: mix(object.scaleY, following.scaleY),
+          effect: mix(object.effect, following.effect), rotation: object.rotation + rotationDelta * fraction,
+        };
+      }).concat(next.objects.flatMap((object, i) => {
+        if (used.has(i) || object.drawMode < 2 || object.effect >= 16) return [];
+        const afterObjects = animation.frames[Math.floor(index) + 2]?.objects ?? [];
+        const after = afterObjects[matchingObject(afterObjects, object)];
+        if (!after || after.effect <= object.effect) return [];
+        const dx = (after.left - object.left) * (fraction - 1);
+        const dy = (after.top - object.top) * (fraction - 1);
+        return [{ ...object, left: object.left + dx, right: object.right + dx,
+          top: object.top + dy, bottom: object.bottom + dy, effect: object.effect * fraction }];
+      })),
+      markers: current.markers.map(marker => {
+        const following = next.markers.find(item => item.id === marker.id);
+        return following ? { id: marker.id, x: mix(marker.x, following.x), y: mix(marker.y, following.y) } : marker;
+      }),
+    };
+  }
+
+  draw(target: Rgb565Framebuffer, x = 0, originY = target.height, scaleY = 1,
+    visualElapsed = target.visualElapsed): void {
+    const frame = this.visualFrame(visualElapsed);
+    if (frame) drawVrpObjects(target, this.archive, this.animation, frame, x, originY, scaleY);
   }
 }
 
@@ -220,7 +381,13 @@ export const drawVrpFrameBottomUp = (
 ): void => {
   const animation = archive.animations[animationIndex];
   const frame = animation?.frames[frameIndex];
-  if (!frame) return;
+  if (frame) drawVrpObjects(target, archive, animationIndex, frame, offsetX, originY, scaleY);
+};
+
+const drawVrpObjects = (
+  target: Rgb565Framebuffer, archive: VrpArchive, animationIndex: number,
+  frame: VrpFrame, offsetX: number, originY: number, scaleY: number,
+): void => {
   for (const object of frame.objects) {
     const sprite = archive.sprites[object.sprite];
     if (!sprite) throw new Error(`VRP animation ${animationIndex} uses missing sprite ${object.sprite}`);
@@ -230,6 +397,10 @@ export const drawVrpFrameBottomUp = (
     const bottom = originY - object.top * scaleY;
     const startX = Math.floor(object.scaleX >= 0 ? left : right);
     const startY = Math.floor(object.scaleY >= 0 ? top : bottom);
+    target.presentation?.blitTransformed(sprite,
+      object.scaleX >= 0 ? left : right, object.scaleY >= 0 ? top : bottom,
+      object.scaleX, object.scaleY * scaleY,
+      (object.rotation * Math.PI * 2) / OBJECT_ROTATION_TURN, blendMode(object), object.effect);
     target.blitTransformed(
       sprite,
       startX,
@@ -239,6 +410,7 @@ export const drawVrpFrameBottomUp = (
       (object.rotation * Math.PI * 2) / OBJECT_ROTATION_TURN,
       blendMode(object),
       object.effect,
+      false,
     );
   }
 };

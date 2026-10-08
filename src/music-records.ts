@@ -2,17 +2,30 @@ import { RhythmChart } from "./chart";
 import { GameScoring } from "./game-scoring";
 import { SaveData } from "./save-data";
 
-/** The count-prefixed 0x7c-byte records in native musicdata.dat. */
+/** Only used when importing saves written with the old fixed-width IDs. */
+const legacyRecordId = (path: string): string => {
+  const bytes = new TextEncoder().encode(path);
+  if (bytes.length <= 31) return path;
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of bytes) hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  return `song:${hash.toString(16).padStart(16, '0')}`;
+};
+
+/** Full path IDs in JSON saves; native offsets remain internal to scoring. */
 export class MusicRecords {
-  readonly bytes: Uint8Array;
   readonly #records = new Map<string, DataView>();
+  get bytes(): Uint8Array {
+    return new TextEncoder().encode(JSON.stringify({
+      version: 1,
+      records: [...this.#records].map(([path, view]) => ({
+        path,
+        data: Array.from(new Uint8Array(view.buffer, view.byteOffset + 0x62, 0x1a)),
+      })),
+    }));
+  }
   constructor(charts: readonly RhythmChart[], read: (path: string) => Uint8Array, saved?: Uint8Array) {
-    this.bytes = new Uint8Array(4 + charts.length * 0x7c);
-    new DataView(this.bytes.buffer).setInt32(0, charts.length, true);
-    for (const [index, chart] of charts.entries()) {
-      const offset = 4 + index * 0x7c;
-      const bytes = this.bytes.subarray(offset, offset + 0x7c);
-      bytes.set(new TextEncoder().encode(chart.id).subarray(0, 31));
+    for (const chart of charts) {
+      const bytes = new Uint8Array(0x7c);
       const source = read(chart.id);
       const text = new TextDecoder('latin1').decode(source.subarray(4, 4 + new DataView(source.buffer, source.byteOffset).getUint32(0, true)));
       const title = /^#TITLE\s+"?([^\r\n"]+)/im.exec(text);
@@ -21,18 +34,35 @@ export class MusicRecords {
         bytes.set(source.subarray(4 + start, 4 + start + Math.min(31, title[1].length)), 0x40);
       }
       bytes[0x60] = chart.keyCount; bytes[0x61] = chart.level;
-      const view = new DataView(this.bytes.buffer, offset, 0x7c);
+      const view = new DataView(bytes.buffer);
       for (let i = 0x64;i <= 0x6c;i += 2) view.setInt16(i, 6, true);
       this.#records.set(chart.id, view);
     }
+    if (saved?.[0] === 0x7b) {
+      try {
+        const state = JSON.parse(new TextDecoder().decode(saved));
+        if (state.version !== 1 || !Array.isArray(state.records)) return;
+        for (const record of state.records) {
+          if (typeof record?.path !== 'string' || !Array.isArray(record.data) || record.data.length !== 0x1a ||
+              !record.data.every((byte: unknown) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)) continue;
+          const view = this.#records.get(record.path);
+          if (view) new Uint8Array(view.buffer, view.byteOffset + 0x62, 0x1a).set(record.data);
+        }
+        return;
+      } catch {
+        // A malformed save leaves the default records intact.
+        return;
+      }
+    }
     if (saved && saved.length >= 4) {
+      const pathsByRecordId = new Map(charts.map(chart => [legacyRecordId(chart.id), chart.id]));
       const count = new DataView(saved.buffer, saved.byteOffset, saved.byteLength).getInt32(0, true);
       if (count >= 0 && saved.length === 4 + count * 0x7c) {
         for (let i = 0;i < count;i++) {
           const bytes = saved.subarray(4 + i * 0x7c, 4 + (i + 1) * 0x7c);
           const end = bytes.subarray(0, 32).indexOf(0);
           const path = new TextDecoder().decode(bytes.subarray(0, end < 0 ? 32 : end));
-          const view = this.#records.get(path);
+          const view = this.#records.get(pathsByRecordId.get(path) ?? path);
           if (view) new Uint8Array(view.buffer, view.byteOffset + 0x62, 0x1a).set(bytes.subarray(0x62));
         }
       }

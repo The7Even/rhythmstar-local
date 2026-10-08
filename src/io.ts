@@ -1,3 +1,6 @@
+import { registerFixedVrp } from './resource-identity';
+import type { FramebufferPresentation } from './presentation';
+
 export type Effect = Readonly<{
   sequence: number;
   kind: string;
@@ -27,11 +30,13 @@ export interface StoragePort {
 
 export interface ClockPort {
   now(): number;
-  every(milliseconds: number, callback: () => void): () => void;
+  every(milliseconds: number, callback: () => void, render?: () => void): () => void;
 }
 
 export interface ScreenPort {
+  readonly presentation?: FramebufferPresentation;
   present(width: number, height: number, rgb565: Uint16Array): void;
+  presentTitle?(archive: import('./vrp').VrpArchive, frames: readonly (import('./vrp').VrpFrame | undefined)[], elapsed: number, showVersion: boolean): void;
 }
 
 export interface BacklightPort {
@@ -61,6 +66,7 @@ export class ResourceStore implements ResourcePort {
 
   constructor(resources: Readonly<Record<string, Uint8Array>>) {
     this.#resources = Object.fromEntries(Object.entries(resources).map(([path, bytes]) => [ResourceStore.normalize(path), bytes]));
+    for (const [path, bytes] of Object.entries(this.#resources)) registerFixedVrp(bytes, path);
   }
 
   read(path: string): Uint8Array {

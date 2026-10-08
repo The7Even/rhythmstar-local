@@ -5,8 +5,7 @@ export function loadSongCatalog(read: (path: string) => Uint8Array, paths: reado
   const catalog: RhythmChart[][] = [[], [], []];
   const seen = new Set<string>();
   for (const path of paths) {
-    // Native musicdata.dat stores a zero-terminated 32-byte path as the record ID.
-    if (seen.has(path) || new TextEncoder().encode(path).length > 31) throw new Error(`Invalid or duplicate song ID: ${path}`);
+    if (seen.has(path)) throw new Error(`Duplicate song ID: ${path}`);
     seen.add(path);
     const chart = parseMus(path, read(path));
     read(`res/Mmf/${chart.audioFilename}`);

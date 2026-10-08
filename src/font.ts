@@ -1,5 +1,9 @@
 import { Rgb565Framebuffer } from "./framebuffer";
 
+/** MUS strings may spell formatting escapes literally; UI strings use controls. */
+export const normalizeGameText = (text: string): string => text
+  .replaceAll("\r\n", "\n").replaceAll("\\n", "\n").replaceAll("\\r", "\r");
+
 export class BitmapFont {
   readonly #bytes: Uint8Array;
   readonly #view: DataView;
@@ -27,6 +31,7 @@ export class BitmapFont {
       if (code < 0x21 || code > 0x7e) throw new Error(`FNT character is unavailable: ${character}`);
       const glyph = this.#view.getUint32(4 + (code - 0x21) * 4, true);
       if (glyph + 12 > this.#bytes.byteLength) throw new Error(`FNT glyph is truncated: ${character}`);
+      target.presentation?.glyph(character, cursor, y, color);
       this.#drawGlyph(target, glyph, cursor, y, color);
       cursor += 8;
     }
@@ -36,7 +41,7 @@ export class BitmapFont {
     for (let row = 0;row < 12;row += 1) {
       const bits = this.#bytes[glyph + row];
       for (let column = 0;column < 8;column += 1) {
-        if ((bits & (1 << column)) !== 0) target.setPixel(x + column, y + row, color);
+        if ((bits & (1 << column)) !== 0) target.setPixel(x + column, y + row, color, false);
       }
     }
   }
@@ -62,7 +67,7 @@ export class GameFont {
     let cx = x;
     let cy = y;
     const initialColor = color;
-    const source = text.replaceAll("\r\n", "\n").replaceAll("\\n", "\n");
+    const source = normalizeGameText(text);
     for (let i = 0;i < source.length;i++) {
       const char = source[i];
       if (char === "\r") {
@@ -78,11 +83,16 @@ export class GameFont {
       if (char !== " ") {
         const index = ascii ? char.charCodeAt(0) - 0x21 : this.#indices.get(char);
         if (index !== undefined && index >= 0) {
+          const clipTop = Math.max(y, clip?.y ?? y);
+          const clipBottom = Math.min(y + height, clip ? clip.y + clip.height : y + height);
+          target.presentation?.glyph(char, cx, cy, color, {
+            x: clip?.x ?? 0, y: clipTop, width: clip?.width ?? target.width, height: Math.max(0, clipBottom - clipTop),
+          });
           const font = ascii ? this.#english : this.#hangul;
           const glyph = font.getUint32(4 + index * 4, true);
           for (let row = 0;row < 12 && cy + row < y + height;row++) {
             const bits = ascii ? font.getUint8(glyph + row) : font.getUint16(glyph + row * 2, true);
-            for (let col = 0;col < advance;col++) if ((bits & (1 << col)) && (!clip || (cx + col >= clip.x && cx + col < clip.x + clip.width && cy + row >= clip.y && cy + row < clip.y + clip.height))) target.setPixel(cx + col, cy + row, color);
+            for (let col = 0;col < advance;col++) if ((bits & (1 << col)) && (!clip || (cx + col >= clip.x && cx + col < clip.x + clip.width && cy + row >= clip.y && cy + row < clip.y + clip.height))) target.setPixel(cx + col, cy + row, color, false);
           }
         }
       }

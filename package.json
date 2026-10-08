@@ -6,17 +6,27 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json",
+    "build:web": "vite build --mode electron",
+    "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outdir=dist-electron --out-extension:.js=.cjs",
+    "electron:dev": "pnpm build:electron && electron . --dev",
+    "electron:start": "pnpm build:web && pnpm build:electron && electron .",
+    "electron:dist": "pnpm build:web && pnpm build:electron && electron-builder --win --x64"
   },
   "dependencies": {
     "spessasynth_lib": "^4.3.14"
   },
   "devDependencies": {
     "@types/node": "26.4.0",
-    "typescript": "6.0.3",
-    "vite": "7.3.6",
+    "electron": "^41.7.1",
+    "electron-builder": "^26.0.0",
     "esbuild": "0.28.2",
+    "fflate": "^0.8.2",
     "spessasynth_core": "4.3.18",
-    "fflate": "^0.8.2"
-  }
+    "typescript": "6.0.3",
+    "vite": "7.3.6"
+  },
+  "description": "리듬스타 웹 리마스터 (Electron 로컬 세이브 지원)",
+  "author": "The7Even",
+  "main": "dist-electron/main.cjs"
 }
