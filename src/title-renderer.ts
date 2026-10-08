@@ -18,6 +18,8 @@ export class TitleRenderer {
     context.setTransform(2, 0, 0, 2, 0, 0);
     context.globalCompositeOperation = 'source-over';context.globalAlpha = 1;
     context.fillStyle = 'black';context.fillRect(0, 0, 240, 320);
+    // 원본 배경 데이터는 위쪽 18px(y 302~320)을 덮지 않아 흰색 바탕이 노출된다. 바로 아래 띠(sprite 11)와 같은 색으로 이어서 채운다.
+    context.fillStyle = 'rgb(197,247,8)';context.fillRect(0, 0, 240, 18);
     const ship = frames[3]?.objects.find(object => object.sprite === 2);
     frames.forEach((frame, index) => {
       for (const object of frame?.objects ?? []) {

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="110" height="94" viewBox="0 0 55 47">
+  <!-- Reuse the approved ON phone at its exact original position and size. -->
+  <image xlink:href="../sprites/b085aa8419175976.png" x="0" y="0" width="30" height="47"/>
+  <!-- The speech bubble is separate geometry; the native white sprites still
+       animate its three dots at their original coordinates. -->
+  <path d="M38 10H50Q54 10 54 14V24Q54 28 50 28H43L36 33L37.5 27Q35 26 35 23V14Q35 10 38 10Z"
+        fill="#ffffff" stroke="#391808" stroke-width="1.5" stroke-linejoin="round"/>
+  <g fill="#391808">
+    <circle cx="40" cy="18" r="1"/>
+    <circle cx="44" cy="18" r="1"/>
+    <circle cx="48" cy="18" r="1"/>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+{"gradients":[
+  {"key":"51f49a0e5e7cd653","width":1,"height":145,"horizontal":false,"stops":[[0,"#290808"],[0.5,"#5a0808"],[1,"#8c0c08"]]},
+  {"key":"ebb71b2769496843","width":1,"height":145,"horizontal":false,"stops":[[0,"#080829"],[0.5,"#08105a"],[1,"#081884"]]},
+  {"key":"dfade29b48bd6e55","width":1,"height":200,"horizontal":false,"stops":[[0,"#191808"],[0.497,"#638608"],[1,"#8cc608"]]},
+  {"key":"240b76bb3e9fe2eb","width":1,"height":200,"horizontal":false,"stops":[[0,"#190808"],[0.497,"#6b1029"],[1,"#bd0831"]]},
+  {"key":"d4e109cde735212b","width":1,"height":145,"horizontal":false,"stops":[[0,"#290808"],[0.5,"#8c0c08"],[1,"#f70808"]]},
+  {"key":"292322a0597d9cee","width":1,"height":145,"horizontal":false,"stops":[[0,"#080829"],[0.5,"#081884"],[1,"#081ce6"]]},
+  {"key":"ac7ce01f6a5de6e1","width":1,"height":200,"horizontal":false,"stops":[[0,"#191808"],[0.497,"#7ba208"],[1,"#fffb08"]]},
+  {"key":"ffd63086c86fc91a","width":1,"height":200,"horizontal":false,"stops":[[0,"#190808"],[0.497,"#f70808"],[1,"#f70808"]]}
+]}
